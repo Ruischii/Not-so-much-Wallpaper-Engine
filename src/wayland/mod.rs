@@ -1,5 +1,5 @@
 mod state;
-mod wallpaper;
+pub mod wallpaper;
 
 use anyhow::Result;
 use wayland_client::{Connection, EventQueue};
