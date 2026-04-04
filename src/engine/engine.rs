@@ -37,10 +37,6 @@ impl World {
             next: 1,
             transforms: HashMap::new(),
         }
-    ;
-    pub fn render_frame(&mut self, buffer: &mut [u8], width: u32, height: u32) {
-    // draw pixels here
-}
 }
 
     pub fn spawn(&mut self, t: Transform) -> Entity {
@@ -49,12 +45,6 @@ impl World {
         self.transforms.insert(id, t);
         id
     }
-use wayland_client::protocol::wl_shm;
-
-    fn create_buffer(...) {
-        // allocate mmap buffer
-        // create wl_buffer
-}
 }
 
 //
