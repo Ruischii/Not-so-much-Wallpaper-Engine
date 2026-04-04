@@ -1,0 +1,12 @@
+# Rust build artifacts
+/target/
+
+# Local/Temp files
+**/*.rs.bk
+Cargo.lock
+
+# IDE folders
+.vscode/
+.idea/
+*.swp
+*~

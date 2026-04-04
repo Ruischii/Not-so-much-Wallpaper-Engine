@@ -17,6 +17,8 @@ use wayland_client::{
     Connection, Dispatch, EventQueue, QueueHandle,
 };
 
+use wayland_client::globals::GlobalListContents;
+
 use wayland_protocols_wlr::layer_shell::v1::client::{
     zwlr_layer_shell_v1::{Layer, ZwlrLayerShellV1},
     zwlr_layer_surface_v1::{Anchor, Event as LayerEvent, ZwlrLayerSurfaceV1},
@@ -25,7 +27,7 @@ use wayland_protocols_wlr::layer_shell::v1::client::{
 /// =============================
 /// Application State
 /// =============================
-struct App {
+pub(crate) struct App {
     compositor: Option<WlCompositor>,
     shm: Option<WlShm>,
     layer_shell: Option<ZwlrLayerShellV1>,
@@ -59,12 +61,12 @@ impl App {
 /// =============================
 /// Registry Handling
 /// =============================
-impl Dispatch<wl_registry::WlRegistry, ()> for App {
+impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for App {
     fn event(
         state: &mut Self,
         registry: &wl_registry::WlRegistry,
         event: wl_registry::Event,
-        _: &(),
+        _: &GlobalListContents,
         _: &Connection,
         qh: &QueueHandle<Self>,
     ) {
@@ -159,13 +161,39 @@ impl Dispatch<WlSurface, ()> for App {
         _: &(),
         _: &Connection,
         _: &QueueHandle<Self>,
-    ) {}
+    ) {
+    }
+}
+
+use wayland_client::protocol::wl_shm_pool::WlShmPool;
+impl Dispatch<WlShmPool, ()> for App {
+    fn event(
+        _: &mut Self,
+        _: &WlShmPool,
+        _: wayland_client::protocol::wl_shm_pool::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+impl Dispatch<WlBuffer, ()> for App {
+    fn event(
+        _: &mut Self,
+        _: &WlBuffer,
+        _: wayland_client::protocol::wl_buffer::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
 }
 
 /// =============================
 /// SHM Buffer Creation
 /// =============================
-fn create_buffer(
+pub(crate) fn create_buffer(
     shm: &WlShm,
     width: u32,
     height: u32,
@@ -227,7 +255,7 @@ pub fn run() -> Result<()> {
     let qh = event_queue.handle();
     let mut app = App::new();
 
-    event_queue.roundtrip(&mut app)?;
+    event_queue.blocking_dispatch(&mut app)?;
 
     let compositor = app.compositor.as_ref().unwrap();
     let layer_shell = app.layer_shell.as_ref().unwrap();
@@ -252,7 +280,7 @@ pub fn run() -> Result<()> {
     app.surface = Some(surface);
     app.layer_surface = Some(layer_surface);
 
-    event_queue.roundtrip(&mut app)?;
+    event_queue.blocking_dispatch(&mut app)?;
 
     let (buffer, mmap) =
         create_buffer(app.shm.as_ref().unwrap(), app.width, app.height, &qh)?;
@@ -273,6 +301,6 @@ pub fn run() -> Result<()> {
         );
         surface.commit();
 
-        event_queue.dispatch(&mut app)?;
+        event_queue.blocking_dispatch(&mut app)?;
     }
 }
