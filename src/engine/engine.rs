@@ -218,7 +218,7 @@ impl PerformanceController {
 // ============================================================
 //
 
-pub struct EngineOmega {
+pub struct Engine {
     world: World,
     renderer: Renderer,
     wayland: WaylandBackend,
@@ -236,7 +236,7 @@ pub struct EngineOmega {
     running: Arc<AtomicBool>,
 }
 
-impl EngineOmega {
+impl Engine {
     pub fn new() -> Self {
         Self {
             world: World::new(),
