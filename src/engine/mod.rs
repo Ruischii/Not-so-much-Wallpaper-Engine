@@ -1,3 +1,3 @@
-pub mod omega;
+pub mod engine;
 
-pub use omega::EngineOmega;
+pub use engine::Engine;
