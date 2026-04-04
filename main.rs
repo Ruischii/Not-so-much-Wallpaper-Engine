@@ -1,8 +1,8 @@
 mod engine;
 
-use engine::EngineOmega;
+use engine::Engine;
 
 fn main() {
-    let engine = EngineOmega::new();
+    let engine = Engine::new();
     engine.run();
 }
