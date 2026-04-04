@@ -27,7 +27,7 @@ use wayland_protocols_wlr::layer_shell::v1::client::{
 /// =============================
 /// Application State
 /// =============================
-struct App {
+pub(crate) struct App {
     compositor: Option<WlCompositor>,
     shm: Option<WlShm>,
     layer_shell: Option<ZwlrLayerShellV1>,
@@ -193,7 +193,7 @@ impl Dispatch<WlBuffer, ()> for App {
 /// =============================
 /// SHM Buffer Creation
 /// =============================
-fn create_buffer(
+pub(crate) fn create_buffer(
     shm: &WlShm,
     width: u32,
     height: u32,

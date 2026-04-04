@@ -6,6 +6,14 @@ use std::{
     time::{Duration, Instant},
 };
 
+use crate::wayland::wallpaper::{self, App};
+use anyhow::Result;
+use memmap2::MmapMut;
+use wayland_client::{
+    protocol::{wl_buffer::WlBuffer, wl_shm::WlShm},
+    QueueHandle,
+};
+
 //
 // ============================================================
 // CORE TYPES
@@ -119,6 +127,16 @@ impl WaylandBackend {
 
     pub fn dispatch(&mut self) {
         // TODO: real Wayland event loop
+    }
+
+    pub fn create_buffer(
+        &self,
+        shm: &WlShm,
+        width: u32,
+        height: u32,
+        qh: &QueueHandle<App>,
+    ) -> Result<(WlBuffer, MmapMut)> {
+        wallpaper::create_buffer(shm, width, height, qh)
     }
 }
 
