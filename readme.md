@@ -64,7 +64,7 @@ curl https://sh.rustup.rs -sSf | sh
 Clone the repository:
 
 ```bash
-git clone https://github.com/Ruischii/not-wallpaper-engine.git
+git clone https://github.com/Ruischii/Not-so-much-Wallpaper-Engine.git
 cd not-wallpaper-engine
 ```
 
