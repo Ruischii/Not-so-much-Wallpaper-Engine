@@ -1,3 +1,112 @@
+#!/usr/bin/env bash
+
+# ============================================================
+# Not‑so‑much Wallpaper Engine Installer
+# ============================================================
+# Installs the project locally for the current user.
+# - Builds release binary
+# - Installs into ~/.local/bin
+# - Creates systemd user service (optional daemon mode)
+#
+# Usage:
+#   ./install.sh
+# ============================================================
+
+set -e
+
+APP_NAME="not-so-much-wallpaper-engine"
+BIN_DIR="$HOME/.local/bin"
+SYSTEMD_DIR="$HOME/.config/systemd/user"
+SERVICE_FILE="$SYSTEMD_DIR/${APP_NAME}.service"
+
+printf "\n==> Installing %s\n" "$APP_NAME"
+
+# ------------------------------------------------------------
+# Check dependencies
+# ------------------------------------------------------------
+
+if ! command -v cargo >/dev/null 2>&1; then
+    echo "Error: Rust/Cargo not found. Install Rust first:" 
+    echo "  curl https://sh.rustup.rs -sSf | sh"
+    exit 1
+fi
+
+# ------------------------------------------------------------
+# Build project
+# ------------------------------------------------------------
+
+echo "==> Building release binary..."
+cargo build --release
+
+BIN_PATH="target/release/$APP_NAME"
+
+if [ ! -f "$BIN_PATH" ]; then
+    echo "Error: build failed — binary not found at $BIN_PATH"
+    exit 1
+fi
+
+# ------------------------------------------------------------
+# Install binary
+# ------------------------------------------------------------
+
+echo "==> Installing binary to $BIN_DIR"
+mkdir -p "$BIN_DIR"
+install -m 755 "$BIN_PATH" "$BIN_DIR/$APP_NAME"
+
+# Ensure PATH contains ~/.local/bin
+if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
+    echo "\n⚠️  ~/.local/bin is not in your PATH."
+    echo "Add this line to your shell config (~/.bashrc or ~/.zshrc):"
+    echo "export PATH=\"$BIN_DIR:\$PATH\""
+fi
+
+# ------------------------------------------------------------
+# Create systemd user service
+# ------------------------------------------------------------
+
+echo "==> Creating systemd user service"
+mkdir -p "$SYSTEMD_DIR"
+
+cat > "$SERVICE_FILE" <<EOF
+[Unit]
+Description=Not-so-much Wallpaper Engine
+After=graphical-session.target
+
+[Service]
+ExecStart=$BIN_DIR/$APP_NAME
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+EOF
+
+# ------------------------------------------------------------
+# Enable service (optional)
+# ------------------------------------------------------------
+
+echo "==> Reloading systemd user daemon"
+systemctl --user daemon-reload
+
+read -p "Enable and start wallpaper daemon now? [y/N]: " ENABLE
+
+if [[ "$ENABLE" =~ ^[Yy]$ ]]; then
+    systemctl --user enable "$APP_NAME"
+    systemctl --user start "$APP_NAME"
+    echo "✅ Service enabled and started."
+else
+    echo "Service installed but not started."
+    echo "You can enable it later with:"
+    echo "  systemctl --user enable $APP_NAME"
+    echo "  systemctl --user start $APP_NAME"
+fi
+
+# ------------------------------------------------------------
+# Done
+# ------------------------------------------------------------
+
+echo "\n✅ Installation complete!"
+echo "Run manually with: $APP_NAME"
 set -e
 
 REPO_URL="https://github.com/Ruischii/Not-so-much-Wallpaper-Engine.git"
