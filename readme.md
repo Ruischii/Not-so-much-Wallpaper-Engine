@@ -65,7 +65,7 @@ Clone the repository:
 
 ```bash
 git clone https://github.com/Ruischii/Not-so-much-Wallpaper-Engine.git
-cd not-wallpaper-engine
+cd Not-so-much-wallpaper-engine
 ```
 
 Build:
