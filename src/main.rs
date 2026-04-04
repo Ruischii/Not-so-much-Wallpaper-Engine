@@ -1,6 +1,5 @@
 mod engine;
 mod wayland;
-mod wallpaper;
 
 use engine::Engine;
 
