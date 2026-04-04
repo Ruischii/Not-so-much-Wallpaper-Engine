@@ -1,6 +1,6 @@
 set -e
 
-REPO_URL="https://github.com/Ruischii/not-so--much-wallpaper-engine.git"
+REPO_URL="https://github.com/Ruischii/Not-so-much-Wallpaper-Engine.git"
 INSTALL_DIR="$HOME/.local/share/engine"
 BIN_DIR="$HOME/.local/bin"
 SERVICE_DIR="$HOME/.config/systemd/user"
