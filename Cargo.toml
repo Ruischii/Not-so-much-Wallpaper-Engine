@@ -8,3 +8,5 @@ wayland-client = "0.31"
 wayland-protocols-wlr = { version = "0.2", features = ["client"] }
 smithay-client-toolkit = "0.19"
 anyhow = "1"
+memmap2 = "0.9"
+tempfile = "3"
