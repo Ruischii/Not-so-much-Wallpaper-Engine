@@ -753,3 +753,252 @@ impl Engine {
         println!("[engine] shutdown complete");
     }
 }
+
+//
+// ============================================================
+// UI COMMANDS
+// ============================================================
+//
+
+use crossbeam_channel::{unbounded, Sender, Receiver};
+
+#[derive(Clone)]
+pub enum UiCommand {
+    Play,
+    Pause,
+    Quit,
+    LoadWallpaper(String),
+}
+
+//
+// ============================================================
+// WALLPAPER BROWSER DATA
+// ============================================================
+//
+
+#[derive(Clone)]
+pub struct WallpaperEntry {
+    pub name: String,
+    pub path: String,
+}
+
+//
+// ============================================================
+// ENGINE UI STATE
+// ============================================================
+//
+
+pub struct EngineUI {
+    sender: Sender<UiCommand>,
+    wallpapers: Vec<WallpaperEntry>,
+    selected: Option<usize>,
+}
+
+impl EngineUI {
+    pub fn new(sender: Sender<UiCommand>) -> Self {
+        Self {
+            sender,
+            wallpapers: Self::scan_wallpapers(),
+            selected: None,
+        }
+    }
+
+    fn scan_wallpapers() -> Vec<WallpaperEntry> {
+        let mut list = Vec::new();
+
+        let dir = env::var("HOME")
+            .map(|h| format!("{}/Videos/Wallpapers", h))
+            .unwrap_or("./wallpapers".into());
+
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+
+                if let Some(ext) = path.extension() {
+                    if ext == "mp4" || ext == "webm" {
+                        list.push(WallpaperEntry {
+                            name: path
+                                .file_stem()
+                                .unwrap()
+                                .to_string_lossy()
+                                .to_string(),
+                            path: path.to_string_lossy().to_string(),
+                        });
+                    }
+                }
+            }
+        }
+
+        list
+    }
+}
+
+//
+// ============================================================
+// EGUI WALLPAPER BROWSER
+// ============================================================
+//
+
+impl eframe::App for EngineUI {
+    fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
+
+        egui::TopBottomPanel::top("top_bar").show(ctx, |ui| {
+            ui.heading("Not-so-much Wallpaper Engine");
+        });
+
+        egui::SidePanel::left("controls")
+            .resizable(false)
+            .default_width(220.0)
+            .show(ctx, |ui| {
+
+            ui.heading("Controls");
+
+            if ui.button("▶ Play").clicked() {
+                let _ = self.sender.send(UiCommand::Play);
+            }
+
+            if ui.button("⏸ Pause").clicked() {
+                let _ = self.sender.send(UiCommand::Pause);
+            }
+
+            ui.separator();
+
+            if ui.button("🔄 Refresh Library").clicked() {
+                self.wallpapers = Self::scan_wallpapers();
+            }
+
+            if ui.button("❌ Quit").clicked() {
+                let _ = self.sender.send(UiCommand::Quit);
+            }
+        });
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.heading("Wallpaper Browser");
+
+            egui::ScrollArea::vertical().show(ui, |ui| {
+
+                let columns = 3;
+                let item_width = ui.available_width() / columns as f32;
+
+                egui::Grid::new("wallpaper_grid")
+                    .num_columns(columns)
+                    .spacing([10.0, 10.0])
+                    .show(ui, |ui| {
+
+                    for (i, wp) in self.wallpapers.iter().enumerate() {
+
+                        ui.vertical(|ui| {
+
+                            let size =
+                                egui::Vec2::new(item_width - 10.0, 120.0);
+
+                            let response =
+                                ui.add_sized(size, egui::Button::new("Preview"));
+
+                            if response.clicked() {
+                                self.selected = Some(i);
+
+                                let _ = self.sender.send(
+                                    UiCommand::LoadWallpaper(
+                                        wp.path.clone()
+                                    )
+                                );
+                            }
+
+                            ui.label(&wp.name);
+                        });
+
+                        if (i + 1) % columns == 0 {
+                            ui.end_row();
+                        }
+                    }
+                });
+            });
+        });
+    }
+}
+
+//
+// ============================================================
+// UI THREAD LAUNCHER
+// ============================================================
+//
+
+pub fn start_ui_thread(
+    sender: Sender<UiCommand>,
+) {
+    thread::spawn(move || {
+
+        let options = eframe::NativeOptions::default();
+
+        let _ = eframe::run_native(
+            "Not-so-much Wallpaper Engine",
+            options,
+            Box::new(|_| Box::new(EngineUI::new(sender))),
+        );
+    });
+}
+
+//
+// ============================================================
+// ENGINE <-> UI INTEGRATION
+// ============================================================
+//
+
+impl Engine {
+
+    pub fn run_with_ui(mut self) {
+
+        let (tx, rx): (Sender<UiCommand>, Receiver<UiCommand>) = unbounded();
+
+        start_ui_thread(tx.clone());
+
+        println!("[engine] starting main loop + UI");
+
+        let mut last = Instant::now();
+
+        while self.running.load(Ordering::Relaxed) {
+
+            while let Ok(cmd) = rx.try_recv() {
+                match cmd {
+                    UiCommand::Play => {
+                        self.resume_web_wallpaper();
+                    }
+                    UiCommand::Pause => {
+                        self.stop_web_wallpaper();
+                    }
+                    UiCommand::Quit => {
+                        self.running.store(false, Ordering::Relaxed);
+                    }
+                    UiCommand::LoadWallpaper(path) => {
+                        println!("[ui] loading wallpaper {}", path);
+                        let _ = self.set_web_wallpaper(&path);
+                    }
+                }
+            }
+
+            let now = Instant::now();
+            let dt = (now - last).as_secs_f32();
+            last = now;
+
+            self.wayland.dispatch();
+
+            self.assets.poll();
+            self.media.update(dt);
+            self.audio.update();
+            self.physics.step(dt);
+            self.scripts.update(dt);
+            self.web.update();
+            self.plugins.update(dt);
+            self.perf.update();
+
+            let _frame = self.media.take_frame();
+
+            self.renderer.draw(&mut self.graph, dt);
+
+            thread::sleep(Duration::from_millis(16));
+        }
+
+        println!("[engine] shutdown complete");
+    }
+}
