@@ -30,6 +30,18 @@ pub struct Transform {
 
 //
 // ============================================================
+// VIDEO FRAME
+// ============================================================
+//
+
+pub struct VideoFrame {
+    pub pixels: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+}
+
+//
+// ============================================================
 // ECS WORLD
 // ============================================================
 //
@@ -45,7 +57,7 @@ impl World {
             next: 1,
             transforms: HashMap::new(),
         }
-}
+    }
 
     pub fn spawn(&mut self, t: Transform) -> Entity {
         let id = self.next;
@@ -91,7 +103,7 @@ impl RenderGraph {
 
 //
 // ============================================================
-// GPU RENDERER (stub backend)
+// GPU RENDERER (stub)
 // ============================================================
 //
 
@@ -113,10 +125,11 @@ impl Renderer {
 
 //
 // ============================================================
-// WAYLAND BACKEND (stub)
+// WAYLAND BACKEND
 // ============================================================
 //
 
+#[derive(Clone)]
 pub struct WaylandBackend;
 
 impl WaylandBackend {
@@ -125,9 +138,7 @@ impl WaylandBackend {
         Self
     }
 
-    pub fn dispatch(&mut self) {
-        // TODO: real Wayland event loop
-    }
+    pub fn dispatch(&mut self) {}
 
     pub fn create_buffer(
         &self,
@@ -142,14 +153,127 @@ impl WaylandBackend {
 
 //
 // ============================================================
-// SUBSYSTEMS
+// MEDIA ENGINE (VIDEO SOURCE)
 // ============================================================
 //
 
-pub struct MediaEngine;
-impl MediaEngine {
-    pub fn update(&mut self) {}
+pub struct MediaEngine {
+    latest_frame: Option<VideoFrame>,
+    time: f32,
 }
+
+impl MediaEngine {
+    pub fn new() -> Self {
+        Self {
+            latest_frame: None,
+            time: 0.0,
+        }
+    }
+
+    pub fn update(&mut self, dt: f32) {
+        self.time += dt;
+
+        // demo animated frame (acts like compositor video)
+        let w = 640;
+        let h = 360;
+
+        let mut pixels = vec![0u8; (w * h * 4) as usize];
+
+        for y in 0..h {
+            for x in 0..w {
+                let i = ((y * w + x) * 4) as usize;
+                pixels[i] = ((x as f32 + self.time * 60.0) as u8);
+                pixels[i + 1] = ((y as f32 + self.time * 40.0) as u8);
+                pixels[i + 2] = 180;
+                pixels[i + 3] = 255;
+            }
+        }
+
+        self.latest_frame = Some(VideoFrame {
+            pixels,
+            width: w,
+            height: h,
+        });
+    }
+
+    pub fn take_frame(&mut self) -> Option<VideoFrame> {
+        self.latest_frame.take()
+    }
+}
+
+//
+// ============================================================
+// VIDEO RENDER NODE
+// ============================================================
+//
+
+pub struct VideoNode {
+    backend: WaylandBackend,
+    shm: WlShm,
+    qh: QueueHandle<App>,
+
+    buffer: Option<WlBuffer>,
+    mmap: Option<MmapMut>,
+
+    width: u32,
+    height: u32,
+}
+
+impl VideoNode {
+    pub fn new(
+        backend: WaylandBackend,
+        shm: WlShm,
+        qh: QueueHandle<App>,
+    ) -> Self {
+        Self {
+            backend,
+            shm,
+            qh,
+            buffer: None,
+            mmap: None,
+            width: 0,
+            height: 0,
+        }
+    }
+
+    fn ensure_buffer(&mut self, w: u32, h: u32) {
+        if self.buffer.is_some() && self.width == w && self.height == h {
+            return;
+        }
+
+        if let Ok((buf, mmap)) =
+            self.backend.create_buffer(&self.shm, w, h, &self.qh)
+        {
+            self.buffer = Some(buf);
+            self.mmap = Some(mmap);
+            self.width = w;
+            self.height = h;
+        }
+    }
+
+    pub fn submit_frame(&mut self, frame: VideoFrame) {
+        self.ensure_buffer(frame.width, frame.height);
+
+        if let Some(mem) = &mut self.mmap {
+            mem[..frame.pixels.len()].copy_from_slice(&frame.pixels);
+        }
+    }
+}
+
+impl RenderNode for VideoNode {
+    fn render(&mut self, _ctx: &mut RenderContext) {
+        // TODO:
+        // wl_surface.attach(buffer)
+        // wl_surface.damage_buffer(...)
+        // wl_surface.commit()
+    }
+}
+
+//
+// ============================================================
+// OTHER SUBSYSTEMS (unchanged)
+// ============================================================
+//
 
 pub struct AudioEngine {
     pub spectrum: [f32; 128],
@@ -173,12 +297,6 @@ impl WebRuntime {
     pub fn update(&mut self) {}
 }
 
-//
-// ============================================================
-// PLUGINS
-// ============================================================
-//
-
 pub trait Plugin: Send {
     fn update(&mut self, dt: f32);
 }
@@ -199,22 +317,10 @@ impl PluginHost {
     }
 }
 
-//
-// ============================================================
-// ASSETS
-// ============================================================
-//
-
 pub struct AssetManager;
 impl AssetManager {
     pub fn poll(&mut self) {}
 }
-
-//
-// ============================================================
-// PERFORMANCE CONTROL
-// ============================================================
-//
 
 pub enum PerformanceMode {
     Performance,
@@ -262,7 +368,7 @@ impl Engine {
             wayland: WaylandBackend::new(),
             graph: RenderGraph::new(),
 
-            media: MediaEngine,
+            media: MediaEngine::new(),
             audio: AudioEngine { spectrum: [0.0; 128] },
             physics: PhysicsEngine,
             scripts: ScriptRuntime,
@@ -294,13 +400,16 @@ impl Engine {
             self.wayland.dispatch();
 
             self.assets.poll();
-            self.media.update();
+            self.media.update(dt);
             self.audio.update();
             self.physics.step(dt);
             self.scripts.update(dt);
             self.web.update();
             self.plugins.update(dt);
             self.perf.update();
+
+            // video frame produced here
+            let _frame = self.media.take_frame();
 
             self.renderer.draw(&mut self.graph, dt);
 
