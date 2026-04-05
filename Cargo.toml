@@ -5,13 +5,13 @@ edition = "2021"
 
 [dependencies]
 wayland-client = "0.31"
-wayland-protocols-wlr = { version = "0.3.12", features = ["client"] }
-smithay-client-toolkit = "0.20.0"
+wayland-protocols-wlr = { version = "0.2", features = ["client"] }
+smithay-client-toolkit = "0.19"
 anyhow = "1"
 memmap2 = "0.9"
 tempfile = "3"
 crossbeam-channel = "0.5"
-md5 = "0.8.0"
-dirs = "6.0"
-eframe = "0.34.1"
-egui = "0.34.1"
+eframe = "0.27"
+egui = "0.27"
+dirs = "5.0"
+md5 = "0.7"
