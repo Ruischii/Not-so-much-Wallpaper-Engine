@@ -15,3 +15,6 @@ eframe = "0.27"
 egui = "0.27"
 dirs = "5.0"
 md5 = "0.7"
+wgpu = "0.19"
+pollster = "0.3"
+bytemuck = { version = "1.15", features = ["derive"] }
