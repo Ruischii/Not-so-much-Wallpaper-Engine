@@ -949,8 +949,13 @@ impl Engine {
 
     pub fn run_with_ui(mut self) {
 
+        use crossbeam_channel::{unbounded, Sender, Receiver};
+
         let (tx, rx): (Sender<UiCommand>, Receiver<UiCommand>) = unbounded();
 
+        // --------------------------------------------------------
+        // Launch UI thread
+        // --------------------------------------------------------
         start_ui_thread(tx.clone());
 
         println!("[engine] starting main loop + UI");
@@ -959,28 +964,50 @@ impl Engine {
 
         while self.running.load(Ordering::Relaxed) {
 
+            // ----------------------------------------------------
+            // Handle UI Commands
+            // ----------------------------------------------------
             while let Ok(cmd) = rx.try_recv() {
                 match cmd {
+
                     UiCommand::Play => {
+                        println!("[ui] Play");
                         self.resume_web_wallpaper();
                     }
+
                     UiCommand::Pause => {
+                        println!("[ui] Pause");
                         self.stop_web_wallpaper();
                     }
+
                     UiCommand::Quit => {
+                        println!("[ui] Quit requested");
                         self.running.store(false, Ordering::Relaxed);
                     }
+
                     UiCommand::LoadWallpaper(path) => {
-                        println!("[ui] loading wallpaper {}", path);
-                        let _ = self.set_web_wallpaper(&path);
+                        println!("[ui] Load wallpaper: {}", path);
+
+                        // treat local file as web wallpaper source
+                        self.add_web_wallpaper(path.clone(), 1920, 1080);
+
+                        if let Err(e) = self.set_web_wallpaper(&path) {
+                            eprintln!("[engine] failed to set wallpaper: {e}");
+                        }
                     }
                 }
             }
 
+            // ----------------------------------------------------
+            // Frame timing
+            // ----------------------------------------------------
             let now = Instant::now();
             let dt = (now - last).as_secs_f32();
             last = now;
 
+            // ----------------------------------------------------
+            // Engine Systems
+            // ----------------------------------------------------
             self.wayland.dispatch();
 
             self.assets.poll();
@@ -992,8 +1019,10 @@ impl Engine {
             self.plugins.update(dt);
             self.perf.update();
 
+            // Pull produced video frame
             let _frame = self.media.take_frame();
 
+            // Render graph execution
             self.renderer.draw(&mut self.graph, dt);
 
             thread::sleep(Duration::from_millis(16));
