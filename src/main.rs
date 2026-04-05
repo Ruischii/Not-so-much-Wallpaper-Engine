@@ -2,13 +2,13 @@ mod engine;
 mod wayland;
 
 use engine::Engine;
+use anyhow::Result;
 
-fn main() {
-    // let engine = Engine::new();
-    wayland::wallpaper::run().unwrap();
-/*
-     wayland::run_wayland_wallpaper()
-        .expect("wayland failed");
-    engine.run();
-*/
+fn main() -> Result<()> {
+    let engine = Engine::new();
+
+    // run engine WITH wallpaper browser UI
+    engine.run_with_ui();
+
+    Ok(())
 }
