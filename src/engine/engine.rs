@@ -4,6 +4,10 @@ use std::{
     sync::Arc,
     thread,
     time::{Duration, Instant},
+    process::Command,
+    fs,
+    path::PathBuf,
+    env,
 };
 
 use crate::wayland::wallpaper::{self, App};
@@ -153,6 +157,300 @@ impl WaylandBackend {
 
 //
 // ============================================================
+// SIMPLE HASH FUNCTION (replaces md5 dependency)
+// ============================================================
+//
+
+fn simple_hash(input: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    input.hash(&mut hasher);
+    format!("{:x}", hasher.finish())
+}
+
+//
+// ============================================================
+// GET CACHE DIRECTORY (without dirs crate)
+// ============================================================
+//
+
+fn get_cache_dir() -> PathBuf {
+    // Try XDG_CACHE_HOME first
+    if let Ok(cache_home) = env::var("XDG_CACHE_HOME") {
+        return PathBuf::from(cache_home).join("web-wallpapers");
+    }
+    
+    // Fallback to ~/.cache
+    if let Ok(home) = env::var("HOME") {
+        return PathBuf::from(home).join(".cache").join("web-wallpapers");
+    }
+    
+    // Final fallback to /tmp
+    PathBuf::from("/tmp").join("web-wallpapers")
+}
+
+//
+// ============================================================
+// WEB WALLPAPER MANAGER
+// ============================================================
+//
+
+pub struct WebWallpaper {
+    pub url: String,
+    pub width: u32,
+    pub height: u32,
+    pub framerate: u32,
+    pub is_playing: bool,
+    pub cache_path: PathBuf,
+}
+
+impl WebWallpaper {
+    pub fn new(url: String, width: u32, height: u32) -> Self {
+        let cache_dir = get_cache_dir();
+        
+        fs::create_dir_all(&cache_dir).unwrap_or_default();
+        
+        let url_hash = simple_hash(&url);
+        let cache_path = cache_dir.join(format!("{}.mp4", url_hash));
+        
+        Self {
+            url,
+            width,
+            height,
+            framerate: 30,
+            is_playing: true,
+            cache_path,
+        }
+    }
+    
+    pub fn download(&self) -> Result<PathBuf> {
+        if self.cache_path.exists() {
+            println!("[web-wallpaper] Using cached: {:?}", self.cache_path);
+            return Ok(self.cache_path.clone());
+        }
+        
+        println!("[web-wallpaper] Downloading: {}", self.url);
+        
+        let output = Command::new("curl")
+            .arg("-L")
+            .arg("-o")
+            .arg(&self.cache_path)
+            .arg(&self.url)
+            .output()?;
+        
+        if output.status.success() {
+            Ok(self.cache_path.clone())
+        } else {
+            anyhow::bail!("Failed to download wallpaper from {}", self.url)
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum CompositorType {
+    Hyprland,
+    Niri,
+    Sway,
+    River,
+    Other,
+}
+
+pub struct WebWallpaperEngine {
+    wallpapers: HashMap<String, WebWallpaper>,
+    active_wallpaper: Option<String>,
+    compositor_type: CompositorType,
+}
+
+impl WebWallpaperEngine {
+    pub fn new() -> Self {
+        let compositor_type = Self::detect_compositor();
+        println!("[web-wallpaper] Detected compositor: {:?}", compositor_type);
+        
+        Self {
+            wallpapers: HashMap::new(),
+            active_wallpaper: None,
+            compositor_type,
+        }
+    }
+    
+    fn detect_compositor() -> CompositorType {
+        let env_check = std::env::var("XDG_SESSION_TYPE")
+            .unwrap_or_default()
+            .to_lowercase();
+        
+        if env_check != "wayland" {
+            return CompositorType::Other;
+        }
+        
+        if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
+            return CompositorType::Hyprland;
+        }
+        
+        if std::env::var("NIRI_SOCKET").is_ok() {
+            return CompositorType::Niri;
+        }
+        
+        if Command::new("sway")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+        {
+            return CompositorType::Sway;
+        }
+        
+        if Command::new("riverctl")
+            .arg("-h")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+        {
+            return CompositorType::River;
+        }
+        
+        CompositorType::Other
+    }
+    
+    pub fn add_wallpaper(&mut self, url: String, width: u32, height: u32) {
+        let wallpaper = WebWallpaper::new(url.clone(), width, height);
+        self.wallpapers.insert(url, wallpaper);
+    }
+    
+    pub fn set_active(&mut self, url: &str) -> Result<()> {
+        if !self.wallpapers.contains_key(url) {
+            anyhow::bail!("Wallpaper not found: {}", url);
+        }
+        
+        self.active_wallpaper = Some(url.to_string());
+        let wallpaper = self.wallpapers.get(url).unwrap();
+        
+        match self.compositor_type {
+            CompositorType::Hyprland => self.set_hyprland_wallpaper(wallpaper),
+            CompositorType::Niri => self.set_niri_wallpaper(wallpaper),
+            CompositorType::Sway => self.set_sway_wallpaper(wallpaper),
+            CompositorType::River => self.set_river_wallpaper(wallpaper),
+            CompositorType::Other => self.set_generic_wallpaper(wallpaper),
+        }
+    }
+    
+    fn set_hyprland_wallpaper(&self, wallpaper: &WebWallpaper) -> Result<()> {
+        let video_path = wallpaper.download()?;
+        
+        let _output = Command::new("hyprctl")
+            .args([
+                "hyprland-wp",
+                &video_path.to_string_lossy(),
+            ])
+            .output()?;
+        
+        println!("[web-wallpaper] Hyprland wallpaper set from: {:?}", video_path);
+        Ok(())
+    }
+    
+    fn set_niri_wallpaper(&self, wallpaper: &WebWallpaper) -> Result<()> {
+        let video_path = wallpaper.download()?;
+        
+        let _output = Command::new("niri")
+            .args([
+                "msg",
+                "output",
+                "set-wallpaper",
+                &video_path.to_string_lossy(),
+            ])
+            .output()?;
+        
+        println!("[web-wallpaper] Niri wallpaper set from: {:?}", video_path);
+        Ok(())
+    }
+    
+    fn set_sway_wallpaper(&self, wallpaper: &WebWallpaper) -> Result<()> {
+        let video_path = wallpaper.download()?;
+        
+        let _output = Command::new("swaybg")
+            .args([
+                "-i",
+                &video_path.to_string_lossy(),
+                "-m",
+                "fill",
+            ])
+            .output()?;
+        
+        println!("[web-wallpaper] Sway wallpaper set from: {:?}", video_path);
+        Ok(())
+    }
+    
+    fn set_river_wallpaper(&self, wallpaper: &WebWallpaper) -> Result<()> {
+        let video_path = wallpaper.download()?;
+        
+        let _output = Command::new("riverctl")
+            .args([
+                "set-wallpaper",
+                &video_path.to_string_lossy(),
+            ])
+            .output()?;
+        
+        println!("[web-wallpaper] River wallpaper set from: {:?}", video_path);
+        Ok(())
+    }
+    
+    fn set_generic_wallpaper(&self, wallpaper: &WebWallpaper) -> Result<()> {
+        let video_path = wallpaper.download()?;
+        
+        if Command::new("mpvpaper").arg("--version").output().is_ok() {
+            let _output = Command::new("mpvpaper")
+                .args([
+                    "-o",
+                    "--no-audio --loop-file=inf",
+                    "all",
+                    &video_path.to_string_lossy(),
+                ])
+                .output()?;
+        } else {
+            println!("[web-wallpaper] No compatible Wayland compositor detected");
+            println!("Supported compositors: Hyprland, Niri, Sway, River");
+        }
+        
+        Ok(())
+    }
+    
+    pub fn update(&mut self) {
+        if let Some(active) = &self.active_wallpaper {
+            if let Some(wallpaper) = self.wallpapers.get_mut(active) {
+                if wallpaper.is_playing {
+                    match self.compositor_type {
+                        CompositorType::Hyprland => {
+                            let _ = Command::new("hyprctl")
+                                .args(["dispatch", "exec", "killall mpvpaper"])
+                                .output();
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+    
+    pub fn stop(&mut self) {
+        if let Some(active) = &self.active_wallpaper {
+            if let Some(wallpaper) = self.wallpapers.get_mut(active) {
+                wallpaper.is_playing = false;
+                println!("[web-wallpaper] Stopped: {}", wallpaper.url);
+            }
+        }
+    }
+    
+    pub fn resume(&mut self) {
+        if let Some(active) = &self.active_wallpaper {
+            if let Some(wallpaper) = self.wallpapers.get_mut(active) {
+                wallpaper.is_playing = true;
+                println!("[web-wallpaper] Resumed: {}", wallpaper.url);
+            }
+        }
+    }
+}
+
+//
+// ============================================================
 // MEDIA ENGINE (VIDEO SOURCE)
 // ============================================================
 //
@@ -160,6 +458,7 @@ impl WaylandBackend {
 pub struct MediaEngine {
     latest_frame: Option<VideoFrame>,
     time: f32,
+    web_wallpapers: WebWallpaperEngine,
 }
 
 impl MediaEngine {
@@ -167,11 +466,13 @@ impl MediaEngine {
         Self {
             latest_frame: None,
             time: 0.0,
+            web_wallpapers: WebWallpaperEngine::new(),
         }
     }
 
     pub fn update(&mut self, dt: f32) {
         self.time += dt;
+        self.web_wallpapers.update();
 
         // demo animated frame (acts like compositor video)
         let w = 640;
@@ -182,8 +483,8 @@ impl MediaEngine {
         for y in 0..h {
             for x in 0..w {
                 let i = ((y * w + x) * 4) as usize;
-                pixels[i] = ((x as f32 + self.time * 60.0) as u8);
-                pixels[i + 1] = ((y as f32 + self.time * 40.0) as u8);
+                pixels[i] = (x as f32 + self.time * 60.0) as u8;
+                pixels[i + 1] = (y as f32 + self.time * 40.0) as u8;
                 pixels[i + 2] = 180;
                 pixels[i + 3] = 255;
             }
@@ -198,6 +499,22 @@ impl MediaEngine {
 
     pub fn take_frame(&mut self) -> Option<VideoFrame> {
         self.latest_frame.take()
+    }
+    
+    pub fn add_web_wallpaper(&mut self, url: String, width: u32, height: u32) {
+        self.web_wallpapers.add_wallpaper(url, width, height);
+    }
+    
+    pub fn set_web_wallpaper(&mut self, url: &str) -> Result<()> {
+        self.web_wallpapers.set_active(url)
+    }
+    
+    pub fn stop_web_wallpaper(&mut self) {
+        self.web_wallpapers.stop();
+    }
+    
+    pub fn resume_web_wallpaper(&mut self) {
+        self.web_wallpapers.resume();
     }
 }
 
@@ -271,7 +588,7 @@ impl RenderNode for VideoNode {
 
 //
 // ============================================================
-// OTHER SUBSYSTEMS (unchanged)
+// OTHER SUBSYSTEMS
 // ============================================================
 //
 
@@ -386,9 +703,26 @@ impl Engine {
     pub fn stop_handle(&self) -> Arc<AtomicBool> {
         self.running.clone()
     }
+    
+    pub fn add_web_wallpaper(&mut self, url: String, width: u32, height: u32) {
+        self.media.add_web_wallpaper(url, width, height);
+    }
+    
+    pub fn set_web_wallpaper(&mut self, url: &str) -> Result<()> {
+        self.media.set_web_wallpaper(url)
+    }
+    
+    pub fn stop_web_wallpaper(&mut self) {
+        self.media.stop_web_wallpaper();
+    }
+    
+    pub fn resume_web_wallpaper(&mut self) {
+        self.media.resume_web_wallpaper();
+    }
 
     pub fn run(mut self) {
         println!("[engine] starting main loop");
+        println!("[engine] Web wallpapers ready - supported compositors: Hyprland, Niri, Sway, River");
 
         let mut last = Instant::now();
 
