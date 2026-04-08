@@ -23,10 +23,7 @@ use wayland_protocols_wlr::layer_shell::v1::client::{
     zwlr_layer_shell_v1::{Layer, ZwlrLayerShellV1},
     zwlr_layer_surface_v1::{Anchor, Event as LayerEvent, ZwlrLayerSurfaceV1},
 };
-
-/// =============================
 /// Application State
-/// =============================
 pub(crate) struct App {
     compositor: Option<WlCompositor>,
     shm: Option<WlShm>,
@@ -57,10 +54,7 @@ impl App {
         }
     }
 }
-
-/// =============================
 /// Registry Handling
-/// =============================
 impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for App {
     fn event(
         state: &mut Self,
@@ -127,10 +121,7 @@ impl Dispatch<ZwlrLayerShellV1, ()> for App {
         _: &QueueHandle<Self>,
     ) {}
 }
-
-/// =============================
 /// Layer Surface Events
-/// =============================
 impl Dispatch<ZwlrLayerSurfaceV1, ()> for App {
     fn event(
         state: &mut Self,
@@ -189,10 +180,7 @@ impl Dispatch<WlBuffer, ()> for App {
     ) {
     }
 }
-
-/// =============================
 /// SHM Buffer Creation
-/// =============================
 pub(crate) fn create_buffer(
     shm: &WlShm,
     width: u32,
@@ -220,10 +208,7 @@ pub(crate) fn create_buffer(
 
     Ok((buffer, mmap))
 }
-
-/// =============================
-/// Engine Initialization (MERGED FIX)
-/// =============================
+/// Engine Initialization
 pub fn init() -> Result<(WlShm, QueueHandle<App>, WlSurface)> {
     let conn = Connection::connect_to_env()?;
     let (_globals, mut event_queue) = registry_queue_init::<App>(&conn)?;
@@ -269,11 +254,6 @@ pub fn init() -> Result<(WlShm, QueueHandle<App>, WlSurface)> {
         surface,
     ))
 }
-/// =============================
-/// SIMPLE WALLPAPER RENDER
-/// =============================
-
-
 /// Fill buffer with animated gradient
 pub fn draw_wallpaper(
     shm: &WlShm,
