@@ -721,7 +721,7 @@ impl Engine {
             self.perf.update();
 
             // =================================================
-            // VIDEO PIPELINE FIX (ENGINE → VIDEO NODE)
+            // VIDEO PIPELINE FIX
             // =================================================
             if let Some(frame) = self.media.take_frame() {
 
@@ -831,7 +831,7 @@ pub fn start_ui_thread(sender: Sender<UiCommand>) {
 
 //
 // ============================================================
-// ENGINE + UI LOOP
+// UI LOOP
 // ============================================================
 //
 
