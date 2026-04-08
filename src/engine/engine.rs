@@ -19,13 +19,7 @@ use wayland_client::{
     protocol::{wl_buffer::WlBuffer, wl_shm::WlShm},
     QueueHandle,
 };
-
-//
-// ============================================================
 // CORE TYPES
-// ============================================================
-//
-
 pub type Entity = u64;
 
 #[derive(Default, Clone, Copy)]
@@ -33,25 +27,13 @@ pub struct Transform {
     pub position: [f32; 2],
     pub scale: [f32; 2],
 }
-
-//
-// ============================================================
 // VIDEO FRAME
-// ============================================================
-//
-
 pub struct VideoFrame {
     pub pixels: Vec<u8>,
     pub width: u32,
     pub height: u32,
 }
-
-//
-// ============================================================
 // ECS WORLD
-// ============================================================
-//
-
 pub struct World {
     next: Entity,
     transforms: HashMap<Entity, Transform>,
@@ -72,13 +54,7 @@ impl World {
         id
     }
 }
-
-//
-// ============================================================
 // RENDER GRAPH
-// ============================================================
-//
-
 pub trait RenderNode: Send + Any {
     fn render(&mut self, ctx: &mut RenderContext);
     fn as_any_mut(&mut self) -> &mut dyn Any;
@@ -121,12 +97,7 @@ impl dyn RenderNode {
         self.as_any_mut().downcast_mut::<T>()
     }
 }
-//
-// ============================================================
-// GPU RENDERER (stub)
-// ============================================================
-//
-
+// GPU RENDERER
 pub struct Renderer {
     frame: u64,
     gpu: GpuContext,
@@ -164,13 +135,7 @@ impl Renderer {
         self.frame += 1;
     }
 }
-
-//
-// ============================================================
-// WGPU GPU CONTEXT
-// ============================================================
-//
-
+// WGPU
 pub struct GpuContext {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
@@ -267,13 +232,7 @@ impl GpuContext {
         );
     }
 }
-
-//
-// ============================================================
 // WAYLAND BACKEND
-// ============================================================
-//
-
 #[derive(Clone)]
 pub struct WaylandBackend;
 
@@ -295,12 +254,7 @@ impl WaylandBackend {
         wallpaper::create_buffer(shm, width, height, qh)
     }
 }
-//
-// ============================================================
 // SIMPLE HASH FUNCTION
-// ============================================================
-//
-
 fn simple_hash(input: &str) -> String {
     use std::hash::{Hash, Hasher};
     let mut hasher =
@@ -308,13 +262,7 @@ fn simple_hash(input: &str) -> String {
     input.hash(&mut hasher);
     format!("{:x}", hasher.finish())
 }
-
-//
-// ============================================================
 // CACHE DIRECTORY
-// ============================================================
-//
-
 fn get_cache_dir() -> PathBuf {
     if let Ok(cache_home) = env::var("XDG_CACHE_HOME") {
         return PathBuf::from(cache_home)
@@ -329,13 +277,7 @@ fn get_cache_dir() -> PathBuf {
 
     PathBuf::from("/tmp").join("web-wallpapers")
 }
-
-//
-// ============================================================
 // WEB WALLPAPER
-// ============================================================
-//
-
 pub struct WebWallpaper {
     pub url: String,
     pub width: u32,
@@ -382,13 +324,7 @@ impl WebWallpaper {
         }
     }
 }
-
-//
-// ============================================================
 // COMPOSITOR DETECTION
-// ============================================================
-//
-
 #[derive(Debug, PartialEq)]
 pub enum CompositorType {
     Hyprland,
@@ -397,13 +333,7 @@ pub enum CompositorType {
     River,
     Other,
 }
-
-//
-// ============================================================
 // WEB WALLPAPER ENGINE
-// ============================================================
-//
-
 pub struct WebWallpaperEngine {
     wallpapers: HashMap<String, WebWallpaper>,
     active_wallpaper: Option<String>,
@@ -440,13 +370,7 @@ impl WebWallpaperEngine {
 
     pub fn update(&mut self) {}
 }
-
-//
-// ============================================================
 // MEDIA ENGINE
-// ============================================================
-//
-
 pub struct MediaEngine {
     latest_frame: Option<VideoFrame>,
     time: f32,
@@ -497,13 +421,7 @@ impl MediaEngine {
         self.latest_frame.take()
     }
 }
-
-//
-// ============================================================
-// VIDEO NODE (FIXED VERSION)
-// ============================================================
-//
-
+// VIDEO NODE
 pub struct VideoNode {
     backend: WaylandBackend,
     shm: WlShm,
@@ -580,12 +498,7 @@ impl RenderNode for VideoNode {
         self
     }
 }
-//
-// ============================================================
 // OTHER SUBSYSTEMS
-// ============================================================
-//
-
 pub struct AudioEngine {
     pub spectrum: [f32; 128],
 }
@@ -646,13 +559,7 @@ pub struct PerformanceController {
 impl PerformanceController {
     pub fn update(&mut self) {}
 }
-
-//
-// ============================================================
 // ENGINE
-// ============================================================
-//
-
 pub struct Engine {
     world: World,
     renderer: Renderer,
@@ -719,10 +626,7 @@ impl Engine {
             self.web.update();
             self.plugins.update(dt);
             self.perf.update();
-
-            // =================================================
-            // VIDEO PIPELINE FIX
-            // =================================================
+            // VIDEO PIPELINE
             if let Some(frame) = self.media.take_frame() {
 
                 // GPU upload
@@ -746,13 +650,7 @@ impl Engine {
         println!("[engine] shutdown complete");
     }
 }
-
-//
-// ============================================================
 // UI COMMANDS
-// ============================================================
-//
-
 use crossbeam_channel::{unbounded, Sender, Receiver};
 
 #[derive(Clone)]
@@ -762,13 +660,7 @@ pub enum UiCommand {
     Quit,
     LoadWallpaper(String),
 }
-
-//
-// ============================================================
 // WALLPAPER ENTRY
-// ============================================================
-//
-
 #[derive(Clone)]
 pub struct WallpaperEntry {
     pub name: String,
@@ -812,13 +704,7 @@ impl eframe::App for EngineUI {
         });
     }
 }
-
-//
-// ============================================================
 // UI THREAD
-// ============================================================
-//
-
 pub fn start_ui_thread(sender: Sender<UiCommand>) {
     let options = eframe::NativeOptions::default();
 
@@ -828,13 +714,7 @@ pub fn start_ui_thread(sender: Sender<UiCommand>) {
         Box::new(|_| Box::new(EngineUI::new(sender))),
     );
 }
-
-//
-// ============================================================
 // UI LOOP
-// ============================================================
-//
-
 impl Engine {
 
     pub fn run_with_ui(mut self) {
