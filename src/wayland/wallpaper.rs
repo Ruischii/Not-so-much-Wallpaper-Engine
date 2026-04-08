@@ -222,45 +222,29 @@ pub(crate) fn create_buffer(
 }
 
 /// =============================
-/// Software Renderer
+/// Engine Initialization (MERGED FIX)
 /// =============================
-fn draw(app: &mut App) {
-    let t = app.start.elapsed().as_secs_f32();
-
-    let buf = app.mmap.as_mut().unwrap();
-
-    for y in 0..app.height {
-        for x in 0..app.width {
-            let i = ((y * app.width + x) * 4) as usize;
-
-            let r = ((x as f32 * 0.2 + t * 50.0) as u8);
-            let g = ((y as f32 * 0.2) as u8);
-            let b = ((t.sin() * 127.0 + 128.0) as u8);
-
-            buf[i] = b;
-            buf[i + 1] = g;
-            buf[i + 2] = r;
-            buf[i + 3] = 255;
-        }
-    }
-}
-
-/// =============================
-/// Run
-/// =============================
-pub fn run() -> Result<()> {
+pub fn init() -> Result<(WlShm, QueueHandle<App>, WlSurface)> {
     let conn = Connection::connect_to_env()?;
-    let (globals, mut event_queue) = registry_queue_init::<App>(&conn)?;
+    let (_globals, mut event_queue) = registry_queue_init::<App>(&conn)?;
 
     let qh = event_queue.handle();
     let mut app = App::new();
 
     event_queue.blocking_dispatch(&mut app)?;
 
-    let compositor = app.compositor.as_ref().unwrap();
-    let layer_shell = app.layer_shell.as_ref().unwrap();
+    let compositor = app
+        .compositor
+        .as_ref()
+        .expect("wl_compositor not available");
+
+    let layer_shell = app
+        .layer_shell
+        .as_ref()
+        .expect("layer shell not available");
 
     let surface = compositor.create_surface(&qh, ());
+
     let layer_surface = layer_shell.get_layer_surface(
         &surface,
         None::<&WlOutput>,
@@ -277,30 +261,54 @@ pub fn run() -> Result<()> {
 
     surface.commit();
 
-    app.surface = Some(surface);
-    app.layer_surface = Some(layer_surface);
-
     event_queue.blocking_dispatch(&mut app)?;
 
-    let (buffer, mmap) =
-        create_buffer(app.shm.as_ref().unwrap(), app.width, app.height, &qh)?;
+    Ok((
+        app.shm.clone().expect("wl_shm not available"),
+        qh,
+        surface,
+    ))
+}
+/// =============================
+/// SIMPLE WALLPAPER RENDER
+/// =============================
 
-    app.buffer = Some(buffer);
-    app.mmap = Some(mmap);
 
-    loop {
-        draw(&mut app);
+/// Fill buffer with animated gradient
+pub fn draw_wallpaper(
+    shm: &WlShm,
+    surface: &WlSurface,
+    qh: &QueueHandle<App>,
+) -> Result<()> {
+    let width = 1920;
+    let height = 1080;
 
-        let surface = app.surface.as_ref().unwrap();
-        surface.attach(app.buffer.as_ref(), 0, 0);
-        surface.damage_buffer(
-            0,
-            0,
-            app.width as i32,
-            app.height as i32,
-        );
-        surface.commit();
+    let (buffer, mut mmap) = create_buffer(shm, width, height, qh)?;
 
-        event_queue.blocking_dispatch(&mut app)?;
+    // ARGB8888 pixels
+    for y in 0..height {
+        for x in 0..width {
+            let offset = ((y * width + x) * 4) as usize;
+
+            let r = (x % 255) as u8;
+            let g = (y % 255) as u8;
+            let b = 180u8;
+
+            mmap[offset + 0] = b;
+            mmap[offset + 1] = g;
+            mmap[offset + 2] = r;
+            mmap[offset + 3] = 255;
+        }
     }
+
+    surface.attach(Some(&buffer), 0, 0);
+    surface.damage_buffer(
+        0,
+        0,
+        width as i32,
+        height as i32,
+    );
+    surface.commit();
+
+    Ok(())
 }
