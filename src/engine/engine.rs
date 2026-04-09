@@ -439,20 +439,7 @@ pub struct VideoNode {
 
 impl VideoNode {
     pub fn new(
-        backend: WaylandBackend,
-        shm: WlShm,
-        qh: QueueHandle<App>,
-    ) -> Self {
-        Self {
-            backend,
-            shm,
-            qh,
-            buffer: None,
-            mmap: None,
-            width: 0,
-            height: 0,
-            pending_frame: None,
-        }
+        pending_frame: Option<VideoFrame>,
     }
 
     fn ensure_buffer(&mut self, w: u32, h: u32) {
