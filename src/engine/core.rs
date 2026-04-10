@@ -11,7 +11,7 @@ use super::{
     gpu::Renderer,
     media::MediaEngine,
     render::RenderGraph,
-    ui::{start_ui_thread, UiCommand},
+    ui::{run_ui, UiCommand},
     videonode::VideoNode,        // ← Added import for VideoNode
     wayland::WaylandBackend,
 };
@@ -127,7 +127,7 @@ pub struct Engine {
 
 impl Engine {
     pub fn new() -> Self {
-        let mut graph = RenderGraph::new();
+        let graph = RenderGraph::new();
 
         // TODO: Create VideoNode properly when you have WlShm and QueueHandle
         // For now we leave the graph empty. You can add VideoNode later.
@@ -162,7 +162,7 @@ impl Engine {
 
         let (tx, rx) = unbounded();
 
-        start_ui_thread(tx.clone());
+        run_ui(tx.clone());
 
         println!("[engine] starting main loop + UI");
 
