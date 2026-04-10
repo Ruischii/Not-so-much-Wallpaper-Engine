@@ -10,8 +10,6 @@ smithay-client-toolkit = "0.19"
 anyhow = "1"
 memmap2 = "0.9"
 tempfile = "3"
-crossbeam-channel = "0.5"
-eframe = "0.27"
 egui = "0.27"
 dirs = "5.0"
 md5 = "0.7"
@@ -24,3 +22,16 @@ sysinfo = "0.30"
 cpal = "0.15"
 realfft = "3"
 rustfft = "6"
+winit = "0.29"
+eframe = { version = "0.31", default-features = false, features = [
+    "default_fonts",      # needed for text
+    "glow",               # OpenGL backend (most reliable on Linux)
+    "wayland",            # Explicitly enable Wayland
+    "x11",                # Fallback to X11
+] }
+
+egui_extras = { version = "0.31", features = ["all_loaders"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+rand = "0.8"
+crossbeam-channel = "0.5"
+chrono = "0.4"
