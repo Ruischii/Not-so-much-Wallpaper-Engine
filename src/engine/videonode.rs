@@ -2,7 +2,6 @@
 
 use std::any::Any;
 
-use anyhow::Result;
 use memmap2::MmapMut;
 use wayland_client::{
     protocol::{wl_buffer::WlBuffer, wl_shm::WlShm},
