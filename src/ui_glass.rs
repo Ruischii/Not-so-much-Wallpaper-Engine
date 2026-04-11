@@ -549,6 +549,9 @@ impl App for SystemMonitorApp {
         }
 
         self.state.refresh();
+        self.process_loaded_images(ctx);
+        self.cleanup_texture_cache();
+        self.lazy_load_visible();
         self.render_ui(ctx);
 
         ctx.request_repaint_after(Duration::from_millis(100));
@@ -789,6 +792,11 @@ impl SystemMonitorApp {
     // ... (all other methods are identical to the previous version to maintain 1501 lines)
 
     fn render_discover_tab(&mut self, ui: &mut egui::Ui) {
+        self.render_online_section(ui);
+        if ui.button("Fetch from Wallhaven").clicked() {
+             self.fetch_wallhaven();
+}
+        self.merge_online_wallpapers();
         self.render_filter_bar(ui);
         ui.add_space(16.0);
         
@@ -1020,7 +1028,9 @@ impl SystemMonitorApp {
             if ui.add(filter_btn).clicked() {
                 self.show_filter_menu = !self.show_filter_menu;
             }
-            
+            if ui.button("⭐ Favorites").clicked() {
+                self.filter_only_favorites();
+            }
             ui.add_space(12.0);
             
             let mut search_query = {
@@ -1193,7 +1203,7 @@ impl SystemMonitorApp {
                 ui.vertical(|ui| {
                     let preview_size = Vec2::new(thumb_size - 20.0, thumb_size - 20.0);
                     let (preview_rect, preview_response) = ui.allocate_exact_size(preview_size, Sense::click());
-                    
+                    self.inject_favorite_overlay(ui, item, preview_rect);
                     let wallpaper = self.wallpaper.lock().unwrap();
                     if let Some(texture) = wallpaper.thumbnail_cache.get(&item.id) {
                         ui.put(preview_rect, egui::Image::new(texture).fit_to_exact_size(preview_size));
@@ -1466,4 +1476,650 @@ pub fn run_ui(tx: Sender<UiCommand>) -> Result<(), eframe::Error> {
             Ok(Box::new(SystemMonitorApp::new(tx.clone())))
         }),
     )
+}
+// ======================================================
+// 🔥 FAVORITES EXTENSION (NON-INTRUSIVE)
+// ======================================================
+
+use std::collections::HashSet;
+
+#[derive(Default)]
+struct FavoritesState {
+    favorites: HashSet<usize>,
+}
+
+impl FavoritesState {
+    fn toggle(&mut self, id: usize) {
+        if !self.favorites.insert(id) {
+            self.favorites.remove(&id);
+        }
+    }
+
+    fn is_favorite(&self, id: usize) -> bool {
+        self.favorites.contains(&id)
+    }
+}
+
+// Global (safe enough for UI layer usage)
+use std::sync::OnceLock;
+static FAVORITES: OnceLock<Mutex<FavoritesState>> = OnceLock::new();
+
+fn favorites() -> &'static Mutex<FavoritesState> {
+    FAVORITES.get_or_init(|| Mutex::new(FavoritesState::default()))
+}
+
+// ======================================================
+// 🎨 FAVORITE BUTTON OVERLAY (inject into cards)
+// ======================================================
+
+impl SystemMonitorApp {
+    fn favorite_button(&mut self, ui: &mut egui::Ui, item_id: usize, rect: egui::Rect) {
+        let mut fav = favorites().lock().unwrap();
+        let is_fav = fav.is_favorite(item_id);
+
+        let btn = egui::Button::new(
+            RichText::new(if is_fav { "★" } else { "☆" })
+                .size(14.0)
+                .color(Color32::WHITE),
+        )
+        .fill(if is_fav {
+            GlassTheme::accent_warning()
+        } else {
+            Color32::from_rgba_unmultiplied(0, 0, 0, 100)
+        })
+        .rounding(6.0);
+
+        let button_rect = egui::Rect::from_min_size(
+            rect.right_top() - Vec2::new(28.0, -4.0),
+            Vec2::new(24.0, 24.0),
+        );
+
+        if ui.put(button_rect, btn).clicked() {
+            fav.toggle(item_id);
+        }
+    }
+}
+
+// ======================================================
+// 🧠 PATCH-INJECTION HOOK (CALL THIS MANUALLY)
+// ======================================================
+
+impl SystemMonitorApp {
+    fn inject_favorite_overlay(
+        &mut self,
+        ui: &mut egui::Ui,
+        item: &WallpaperItem,
+        preview_rect: egui::Rect,
+    ) {
+        self.favorite_button(ui, item.id, preview_rect);
+    }
+}
+
+// ======================================================
+// 📌 FAVORITES FILTER (OPTIONAL CALL)
+// ======================================================
+
+impl SystemMonitorApp {
+    fn filter_only_favorites(&mut self) {
+        let fav = favorites().lock().unwrap();
+
+        let mut wallpaper = self.wallpaper.lock().unwrap();
+        wallpaper.filtered_items = wallpaper
+            .wallpaper_items
+            .iter()
+            .filter(|w| fav.is_favorite(w.id))
+            .cloned()
+            .collect();
+    }
+}
+// ======================================================
+// 🌐 ONLINE WALLPAPER API EXTENSION (NON-INTRUSIVE)
+// ======================================================
+
+use std::thread;
+use std::sync::mpsc::{channel, Receiver};
+
+#[derive(Clone)]
+struct OnlineWallpaper {
+    id: String,
+    title: String,
+    author: String,
+    image_url: String,
+    thumb_url: String,
+}
+
+struct OnlineState {
+    wallpapers: Vec<WallpaperItem>,
+    loading: bool,
+}
+
+impl OnlineState {
+    fn new() -> Self {
+        Self {
+            wallpapers: Vec::new(),
+            loading: false,
+        }
+    }
+}
+
+// Global storage
+static ONLINE_STATE: OnceLock<Mutex<OnlineState>> = OnceLock::new();
+
+fn online_state() -> &'static Mutex<OnlineState> {
+    ONLINE_STATE.get_or_init(|| Mutex::new(OnlineState::new()))
+}
+
+// ======================================================
+// 🌍 FETCH FROM API (THREAD SAFE)
+// ======================================================
+
+impl SystemMonitorApp {
+    fn fetch_online_wallpapers(&self) {
+        let state = online_state().clone();
+
+        {
+            let mut s = state.lock().unwrap();
+            if s.loading { return; }
+            s.loading = true;
+        }
+
+        thread::spawn(move || {
+            // 🔥 Replace with real API later
+            let dummy_data = vec![
+                ("Ocean View", "Unsplash", "https://picsum.photos/800/600"),
+                ("Mountains", "Unsplash", "https://picsum.photos/801/600"),
+                ("City Night", "Unsplash", "https://picsum.photos/802/600"),
+            ];
+
+            let mut new_items = Vec::new();
+
+            for (i, (title, author, url)) in dummy_data.into_iter().enumerate() {
+                new_items.push(WallpaperItem {
+                    id: 10_000 + i,
+                    title: title.to_string(),
+                    author: author.to_string(),
+                    size: 2.0,
+                    resolution: "1920x1080".to_string(),
+                    file_type: "JPG".to_string(),
+                    tags: vec!["online".to_string()],
+                    category: FilterType::Scene,
+                    description: "Online wallpaper".to_string(),
+                    downloads: 1000,
+                    rating: 4.5,
+                    path: PathBuf::from(url), // URL stored as path
+                    thumbnail_id: None,
+                });
+            }
+
+            let mut s = state.lock().unwrap();
+            s.wallpapers = new_items;
+            s.loading = false;
+        });
+    }
+}
+
+// ======================================================
+// 🧩 MERGE ONLINE INTO UI
+// ======================================================
+
+impl SystemMonitorApp {
+    fn merge_online_wallpapers(&mut self) {
+        let online = online_state().lock().unwrap();
+
+        if online.wallpapers.is_empty() {
+            return;
+        }
+
+        let mut wallpaper = self.wallpaper.lock().unwrap();
+
+        for item in &online.wallpapers {
+            if !wallpaper.wallpaper_items.iter().any(|w| w.id == item.id) {
+                wallpaper.wallpaper_items.push(item.clone());
+            }
+        }
+
+        wallpaper.apply_filters_and_sort();
+    }
+}
+
+// ======================================================
+// 🎨 ONLINE TAB UI (EXTENSION)
+// ======================================================
+
+impl SystemMonitorApp {
+    fn render_online_section(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            if ui.button("🌐 Load Online Wallpapers").clicked() {
+                self.fetch_online_wallpapers();
+            }
+
+            if ui.button("🔄 Refresh").clicked() {
+                self.merge_online_wallpapers();
+            }
+        });
+
+        ui.add_space(10.0);
+
+        let online = online_state().lock().unwrap();
+
+        if online.loading {
+            ui.label("⏳ Loading wallpapers from internet...");
+            return;
+        }
+
+        if online.wallpapers.is_empty() {
+            ui.label("No online wallpapers loaded.");
+            return;
+        }
+
+        ui.label(format!("🌍 {} wallpapers available online", online.wallpapers.len()));
+    }
+}
+// ======================================================
+// 🌐 REAL ONLINE API (WALLHAVEN) + DOWNLOAD CACHE
+// ======================================================
+
+use serde::Deserialize;
+
+// ---------- API RESPONSE ----------
+
+#[derive(Debug, Deserialize)]
+struct WallhavenResponse {
+    data: Vec<WallhavenWallpaper>,
+}
+
+#[derive(Debug, Deserialize)]
+struct WallhavenWallpaper {
+    id: String,
+    path: String,
+    resolution: String,
+    file_size: u64,
+    favorites: u32,
+}
+
+// ---------- CACHE FOLDER ----------
+
+fn online_cache_dir() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+    let dir = PathBuf::from(home).join(".wallpaper_engine_cache");
+
+    let _ = fs::create_dir_all(&dir);
+    dir
+}
+
+// ---------- DOWNLOAD IMAGE ----------
+
+fn download_image(url: &str) -> Option<PathBuf> {
+    let filename = url.split('/').last()?.to_string();
+    let path = online_cache_dir().join(filename);
+
+    if path.exists() {
+        return Some(path);
+    }
+
+    if let Ok(resp) = reqwest::blocking::get(url) {
+        if let Ok(bytes) = resp.bytes() {
+            if fs::write(&path, &bytes).is_ok() {
+                return Some(path);
+            }
+        }
+    }
+
+    None
+}
+
+// ---------- FETCH REAL API ----------
+
+impl SystemMonitorApp {
+    fn fetch_wallhaven(&self) {
+        let state = online_state().clone();
+
+        {
+            let mut s = state.lock().unwrap();
+            if s.loading { return; }
+            s.loading = true;
+        }
+
+        thread::spawn(move || {
+            let url = "https://wallhaven.cc/api/v1/search?categories=111&purity=100&sorting=toplist";
+
+            let mut new_items = Vec::new();
+
+            if let Ok(resp) = reqwest::blocking::get(url) {
+                if let Ok(json) = resp.json::<WallhavenResponse>() {
+                    for (i, w) in json.data.iter().take(30).enumerate() {
+                        if let Some(local_path) = download_image(&w.path) {
+                            new_items.push(WallpaperItem {
+                                id: 50_000 + i,
+                                title: format!("Wallhaven {}", w.id),
+                                author: "Wallhaven".to_string(),
+                                size: w.file_size as f32 / 1024.0 / 1024.0,
+                                resolution: w.resolution.clone(),
+                                file_type: "JPG".to_string(),
+                                tags: vec!["online".into(), "wallhaven".into()],
+                                category: FilterType::Scene,
+                                description: "Downloaded from Wallhaven".into(),
+                                downloads: w.favorites,
+                                rating: 4.0,
+                                path: local_path,
+                                thumbnail_id: None,
+                            });
+                        }
+                    }
+                }
+            }
+
+            let mut s = state.lock().unwrap();
+            s.wallpapers = new_items;
+            s.loading = false;
+        });
+    }
+}
+// ======================================================
+// 🚀 STEAM-LEVEL ONLINE SYSTEM
+// ======================================================
+
+#[derive(Default)]
+struct OnlineQuery {
+    query: String,
+    page: u32,
+    loading: bool,
+    has_more: bool,
+}
+
+static ONLINE_QUERY: OnceLock<Mutex<OnlineQuery>> = OnceLock::new();
+
+fn online_query() -> &'static Mutex<OnlineQuery> {
+    ONLINE_QUERY.get_or_init(|| Mutex::new(OnlineQuery {
+        query: String::new(),
+        page: 1,
+        loading: false,
+        has_more: true,
+    }))
+}
+
+// ======================================================
+// 🔍 SEARCH + PAGINATION (WALLHAVEN)
+// ======================================================
+
+impl SystemMonitorApp {
+    fn search_wallhaven(&self, query: String, page: u32) {
+        let state = online_state().clone();
+        let q_state = online_query().clone();
+
+        {
+            let mut q = q_state.lock().unwrap();
+            if q.loading { return; }
+            q.loading = true;
+        }
+
+        thread::spawn(move || {
+            let url = format!(
+                "https://wallhaven.cc/api/v1/search?q={}&page={}&sorting=toplist",
+                query, page
+            );
+
+            let mut new_items = Vec::new();
+
+            if let Ok(resp) = reqwest::blocking::get(&url) {
+                if let Ok(json) = resp.json::<WallhavenResponse>() {
+                    for (i, w) in json.data.iter().enumerate() {
+                        if let Some(local_path) = download_image(&w.path) {
+                            new_items.push(WallpaperItem {
+                                id: 100_000 + (page as usize * 1000) + i,
+                                title: format!("{} ({})", query, w.id),
+                                author: "Wallhaven".into(),
+                                size: w.file_size as f32 / 1024.0 / 1024.0,
+                                resolution: w.resolution.clone(),
+                                file_type: "JPG".into(),
+                                tags: vec![query.clone(), "online".into()],
+                                category: FilterType::Scene,
+                                description: "Online search result".into(),
+                                downloads: w.favorites,
+                                rating: 4.2,
+                                path: local_path,
+                                thumbnail_id: None,
+                            });
+                        }
+                    }
+                }
+            }
+
+            {
+                let mut s = state.lock().unwrap();
+                s.wallpapers.extend(new_items);
+            }
+
+            let mut q = q_state.lock().unwrap();
+            q.loading = false;
+            q.page += 1;
+        });
+    }
+}
+
+// ======================================================
+// 🎨 STEAM WORKSHOP UI PANEL
+// ======================================================
+
+impl SystemMonitorApp {
+    fn render_steam_workshop(&mut self, ui: &mut egui::Ui) {
+        let mut query_state = online_query().lock().unwrap();
+
+        ui.horizontal(|ui| {
+            let response = ui.add(
+                egui::TextEdit::singleline(&mut query_state.query)
+                    .hint_text("🔍 Search online wallpapers...")
+                    .desired_width(220.0),
+            );
+
+            if ui.button("Search").clicked()
+                || (response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)))
+            {
+                query_state.page = 1;
+                online_state().lock().unwrap().wallpapers.clear();
+
+                drop(query_state);
+                self.search_wallhaven(
+                    online_query().lock().unwrap().query.clone(),
+                    1,
+                );
+                return;
+            }
+
+            if ui.button("🔥 Trending").clicked() {
+                query_state.query = "".into();
+                query_state.page = 1;
+                online_state().lock().unwrap().wallpapers.clear();
+
+                drop(query_state);
+                self.search_wallhaven("".into(), 1);
+                return;
+            }
+        });
+
+        ui.add_space(10.0);
+
+        // TAG QUICK FILTERS
+        ui.horizontal_wrapped(|ui| {
+            for tag in ["anime", "nature", "cyberpunk", "dark", "minimal"] {
+                if ui.button(tag).clicked() {
+                    let mut q = online_query().lock().unwrap();
+                    q.query = tag.into();
+                    q.page = 1;
+                    online_state().lock().unwrap().wallpapers.clear();
+
+                    drop(q);
+                    self.search_wallhaven(tag.into(), 1);
+                }
+            }
+        });
+
+        ui.add_space(10.0);
+
+        let q = online_query().lock().unwrap();
+        if q.loading {
+            ui.label("⏳ Loading more wallpapers...");
+        }
+
+        drop(q);
+
+        // AUTO LOAD NEXT PAGE (INFINITE SCROLL TRIGGER)
+        let should_load_more = {
+            let q = online_query().lock().unwrap();
+            !q.loading && q.has_more
+        };
+
+        if should_load_more {
+            let q = online_query().lock().unwrap();
+            self.search_wallhaven(q.query.clone(), q.page);
+        }
+
+        ui.separator();
+
+        // MERGE INTO MAIN SYSTEM
+        self.merge_online_wallpapers();
+    }
+}
+// ======================================================
+// ⚡ GPU + ASYNC PERFORMANCE LAYER (FIXED)
+// ======================================================
+
+use std::sync::mpsc::{Sender as StdSender, Receiver as StdReceiver};
+// ------------------------------------------------------
+// 🧠 BACKGROUND IMAGE LOADER
+// ------------------------------------------------------
+
+struct ImageJob {
+    id: usize,
+    path: PathBuf,
+}
+
+struct ImageResult {
+    id: usize,
+    image: egui::ColorImage,
+}
+
+struct AsyncImageLoader {
+    sender: StdSender<ImageJob>,
+    receiver: Mutex<StdReceiver<ImageResult>>, // ✅ FIX
+}
+
+impl AsyncImageLoader {
+    fn new(worker_count: usize) -> Self {
+        let (job_tx, job_rx) = std::sync::mpsc::channel::<ImageJob>();
+        let (res_tx, res_rx) = std::sync::mpsc::channel::<ImageResult>();
+
+        let job_rx = Arc::new(Mutex::new(job_rx));
+
+        for _ in 0..worker_count {
+            let job_rx = job_rx.clone();
+            let res_tx = res_tx.clone();
+
+            thread::spawn(move || loop {
+                let job = {
+                    let rx = job_rx.lock().unwrap();
+                    rx.recv()
+                };
+
+                if let Ok(job) = job {
+                    if let Ok(img) = image::open(&job.path) {
+                        let img = img.thumbnail(256, 256);
+                        let rgba = img.to_rgba8();
+                        let size = [rgba.width() as usize, rgba.height() as usize];
+                        let pixels = rgba.into_raw();
+
+                        let _ = res_tx.send(ImageResult {
+                            id: job.id,
+                            image: egui::ColorImage::from_rgba_unmultiplied(size, &pixels),
+                        });
+                    }
+                }
+            });
+        }
+
+        Self {
+            sender: job_tx,
+            receiver: Mutex::new(res_rx), // ✅ FIX
+        }
+    }
+}
+
+// GLOBAL LOADER
+static IMAGE_LOADER: OnceLock<AsyncImageLoader> = OnceLock::new();
+
+fn image_loader() -> &'static AsyncImageLoader {
+    IMAGE_LOADER.get_or_init(|| AsyncImageLoader::new(4))
+}
+
+// ------------------------------------------------------
+// 🚀 QUEUE IMAGE LOAD (NON-BLOCKING)
+// ------------------------------------------------------
+
+impl SystemMonitorApp {
+    fn queue_image_load(&self, item: &WallpaperItem) {
+        let _ = image_loader().sender.send(ImageJob {
+            id: item.id,
+            path: item.path.clone(),
+        });
+    }
+}
+
+// ------------------------------------------------------
+// 🎮 PROCESS GPU UPLOADS (MAIN THREAD)
+// ------------------------------------------------------
+
+impl SystemMonitorApp {
+    fn process_loaded_images(&mut self, ctx: &Context) {
+        let loader = image_loader();
+
+        let mut wallpaper = self.wallpaper.lock().unwrap();
+
+        let rx = loader.receiver.lock().unwrap(); // ✅ lock once
+
+        while let Ok(result) = rx.try_recv() {
+            let texture = ctx.load_texture(
+                format!("async_thumb_{}", result.id),
+                result.image,
+                TextureOptions::LINEAR,
+            );
+
+            wallpaper.thumbnail_cache.insert(result.id, texture);
+        }
+    }
+}
+
+// ------------------------------------------------------
+// 🧹 SMART CACHE CLEANUP (VRAM SAFE)
+// ------------------------------------------------------
+
+impl SystemMonitorApp {
+    fn cleanup_texture_cache(&mut self) {
+        let mut wallpaper = self.wallpaper.lock().unwrap();
+
+        let max_cache = 200;
+
+        if wallpaper.thumbnail_cache.len() > max_cache {
+            let keys: Vec<usize> = wallpaper.thumbnail_cache.keys().cloned().collect();
+
+            for key in keys.iter().take(keys.len() - max_cache) {
+                wallpaper.thumbnail_cache.remove(key);
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------
+// ⚡ LAZY LOAD VISIBLE ITEMS ONLY
+// ------------------------------------------------------
+
+impl SystemMonitorApp {
+    fn lazy_load_visible(&mut self) {
+        let items = {
+            self.wallpaper.lock().unwrap().filtered_items.clone()
+        };
+
+        for item in items.iter().take(30) {
+            self.queue_image_load(item);
+        }
+    }
 }
