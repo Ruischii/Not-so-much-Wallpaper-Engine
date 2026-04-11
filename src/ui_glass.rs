@@ -474,6 +474,55 @@ impl SystemMonitorApp {
             preview_item: None,
         }
     }
+    fn glass_panel(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) {
+    let rect = ui.available_rect_before_wrap();
+
+    let painter = ui.painter();
+
+    // Base soft tint
+    painter.rect_filled(
+        rect,
+        Rounding::same(16),
+        Color32::from_rgba_unmultiplied(20, 20, 30, 25),
+    );
+
+    // Inner highlight (fake light diffusion)
+    painter.rect_stroke(
+        rect.shrink(1.0),
+        Rounding::same(16),
+        Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 20)),
+        StrokeKind::Inside,
+    );
+
+    // Top light gradient simulation
+    let top_rect = egui::Rect::from_min_max(
+        rect.min,
+        egui::pos2(rect.max.x, rect.min.y + rect.height() * 0.35),
+    );
+
+    painter.rect_filled(
+        top_rect,
+        Rounding::same(16),
+        Color32::from_rgba_unmultiplied(255, 255, 255, 12),
+    );
+
+    // Bottom shadow gradient
+    let bottom_rect = egui::Rect::from_min_max(
+        egui::pos2(rect.min.x, rect.max.y - rect.height() * 0.4),
+        rect.max,
+    );
+
+    painter.rect_filled(
+        bottom_rect,
+        Rounding::same(16),
+        Color32::from_rgba_unmultiplied(0, 0, 0, 20),
+    );
+
+    ui.allocate_ui_at_rect(rect, |ui| {
+        ui.add_space(8.0);
+        add_contents(ui);
+    });
+}
 }
 
 impl App for SystemMonitorApp {
