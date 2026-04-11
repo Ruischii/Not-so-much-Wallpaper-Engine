@@ -1213,12 +1213,10 @@ impl SystemMonitorApp {
                         let overlay_rect = preview_rect.expand(2.0);
                         let painter = ui.painter();
                         painter.rect_stroke(overlay_rect, Rounding::same(8), Stroke::new(2.0, GlassTheme::accent_primary()), StrokeKind::Middle);
-                        
                         let button_rect = egui::Rect::from_center_size(
                             preview_rect.center(), 
                             Vec2::new(60.0, 24.0)
-                        );
-                        
+                        );   
                         if ui.put(button_rect, egui::Button::new(RichText::new("👁 Preview").size(11.0))
                             .fill(GlassTheme::accent_primary())
                             .rounding(6.0)
@@ -1227,37 +1225,29 @@ impl SystemMonitorApp {
                             self.preview_item = Some(item.id);
                         }
                     }
-                    
                     if preview_response.clicked() {
                         let mut wallpaper = self.wallpaper.lock().unwrap();
                         wallpaper.select_image(idx);
                     }
-                    
                     ui.add_space(8.0);
-                    
                     ui.label(RichText::new(&item.title).size(13.0).strong().color(GlassTheme::text_primary()));
-                    
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(&item.author).size(11.0).color(GlassTheme::text_muted()));
                         ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.label(RichText::new(format!("★ {:.1}", item.rating)).size(11.0).color(GlassTheme::accent_warning()));
                         });
                     });
-                    
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(&item.resolution).size(10.0).color(GlassTheme::text_muted()));
                         ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.label(RichText::new(format!("{:.1} MB", item.size)).size(10.0).color(GlassTheme::text_muted()));
                         });
                     });
-                    
                     ui.add_space(8.0);
-                    
                     ui.horizontal(|ui| {
                         let set_btn = egui::Button::new(RichText::new("Set as Wallpaper").size(11.0))
                             .fill(GlassTheme::accent_success())
-                            .rounding(6.0);
-                        
+                            .rounding(6.0);                   
                         if ui.add_sized([thumb_size - 20.0, 28.0], set_btn).clicked() {
                             let _ = self.tx.send(UiCommand::SetWallpaper(item.path.clone()));
                         }
@@ -1265,13 +1255,11 @@ impl SystemMonitorApp {
                 });
             });
     }
-    
     fn render_image_preview_modal(&mut self, ctx: &Context, item_id: usize) {
         let item = {
             let wallpaper = self.wallpaper.lock().unwrap();
             wallpaper.wallpaper_items.iter().find(|i| i.id == item_id).cloned()
         };
-        
         if let Some(item) = item {
             egui::Window::new("Image Preview")
                 .frame(Frame::none().fill(Color32::from_rgba_unmultiplied(10,10,10,20)))
@@ -1285,37 +1273,30 @@ impl SystemMonitorApp {
                             let rgba = img.to_rgba8();
                             let size = [rgba.width() as usize, rgba.height() as usize];
                             let pixels = rgba.into_raw();
-                            
                             let texture = ctx.load_texture(
                                 format!("preview_{}", item.id),
                                 egui::ColorImage::from_rgba_unmultiplied(size, &pixels),
                                 TextureOptions::LINEAR,
                             );
-                            
                             let available = ui.available_size();
                             let img_size = Vec2::new(size[0] as f32, size[1] as f32);
                             let scale = (available.x / img_size.x).min((available.y - 100.0) / img_size.y).min(1.0);
                             let display_size = img_size * scale;
-                            
                             ui.add(egui::Image::new(&texture).fit_to_exact_size(display_size));
-                        }
-                        
+                        }                    
                         ui.add_space(16.0);
-                        
                         ui.horizontal(|ui| {
                             ui.label(RichText::new(&item.title).size(16.0).strong());
                             ui.add_space(20.0);
                             ui.label(RichText::new(&item.resolution).color(GlassTheme::text_secondary()));
                             ui.add_space(20.0);
                             ui.label(RichText::new(format!("{:.1} MB", item.size)).color(GlassTheme::text_secondary()));
-                            
                             ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                                 if ui.button(RichText::new("Set as Wallpaper").color(Color32::WHITE))
                                     .clicked() {
                                     let _ = self.tx.send(UiCommand::SetWallpaper(item.path.clone()));
                                     self.show_preview = false;
                                 }
-                                
                                 if ui.button("Close").clicked() {
                                     self.show_preview = false;
                                 }
@@ -1340,21 +1321,18 @@ impl SystemMonitorApp {
                         ui.label(RichText::new("🖼️ Current Wallpaper").color(GlassTheme::text_primary()).size(16.0).strong());
                         ui.add_space(16.0);
                         ui.label(RichText::new(&current.title).color(GlassTheme::accent_primary()).size(14.0));
-                    });
-                    
+                    });          
                     ui.add_space(16.0);
                     
                     ui.horizontal(|ui| {
                         if ui.button(RichText::new("⏮").size(16.0)).clicked() {
                             let mut w = self.wallpaper.lock().unwrap();
                             w.prev_image();
-                        }
-                        
+                        }                    
                         let play_text = if wallpaper.slideshow_active { "⏸" } else { "▶" };
                         let play_btn = egui::Button::new(RichText::new(play_text).size(16.0))
                             .fill(if wallpaper.slideshow_active { GlassTheme::accent_success() } else { GlassTheme::accent_primary() })
                             .rounding(8.0);
-                        
                         if ui.add(play_btn).clicked() {
                             let mut w = self.wallpaper.lock().unwrap();
                             w.slideshow_active = !w.slideshow_active;
@@ -1362,7 +1340,6 @@ impl SystemMonitorApp {
                                 w.last_slide_time = Some(std::time::Instant::now());
                             }
                         }
-                        
                         if ui.button(RichText::new("⏭").size(16.0)).clicked() {
                             let mut w = self.wallpaper.lock().unwrap();
                             w.next_image();
@@ -1386,7 +1363,6 @@ impl SystemMonitorApp {
                 });
         }
     }
-
     fn render_comment_section(&mut self, ui: &mut egui::Ui) {
         egui::Frame::none()
             .fill(GlassTheme::bg_card())
@@ -1399,8 +1375,7 @@ impl SystemMonitorApp {
                     ui.add_space(12.0);
                     let comment_count = self.wallpaper.lock().unwrap().comments.len();
                     ui.label(RichText::new(format!("({})", comment_count)).color(GlassTheme::text_muted()).size(13.0));
-                });
-                
+                });               
                 ui.add_space(12.0);
                 
                 ScrollArea::vertical()
@@ -1408,8 +1383,7 @@ impl SystemMonitorApp {
                     .show(ui, |ui| {
                         let comments = {
                             self.wallpaper.lock().unwrap().comments.clone()
-                        };
-                        
+                        }; 
                         for (author, comment, timestamp) in comments.iter().rev().take(10) {
                             ui.horizontal(|ui| {
                                 ui.label(RichText::new(format!("[{}]", timestamp)).color(GlassTheme::text_muted()).size(10.0));
@@ -1421,30 +1395,24 @@ impl SystemMonitorApp {
                             ui.add_space(4.0);
                         }
                     });
-                
                 ui.add_space(12.0);
-                
                 ui.horizontal(|ui| {
                     let mut comment = {
                         self.wallpaper.lock().unwrap().current_comment.clone()
                     };
-                    
                     let response = ui.add(
                         egui::TextEdit::singleline(&mut comment)
                             .hint_text("Write a comment...")
                             .desired_width(ui.available_width() - 70.0)
                     );
-                    
                     if response.changed() {
                         let mut w = self.wallpaper.lock().unwrap();
                         w.current_comment = comment;
                     }
-                    
                     let post_btn = egui::Button::new(RichText::new("Post").color(Color32::WHITE))
                         .fill(GlassTheme::accent_primary())
                         .rounding(6.0)
-                        .min_size(Vec2::new(60.0, 0.0));
-                    
+                        .min_size(Vec2::new(60.0, 0.0));                   
                     if ui.add(post_btn).clicked() || (response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter))) {
                         let mut w = self.wallpaper.lock().unwrap();
                         let comment_text = w.current_comment.clone();
@@ -1457,11 +1425,7 @@ impl SystemMonitorApp {
             });
     }
 }
-
-// ======================================================
 // RUN UI
-// ======================================================
-
 pub fn run_ui(tx: Sender<UiCommand>) -> Result<(), eframe::Error> {
     let options = NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -1472,15 +1436,12 @@ pub fn run_ui(tx: Sender<UiCommand>) -> Result<(), eframe::Error> {
             .with_decorations(true),
         ..Default::default()
     };
-
     eframe::run_native(
         "Wallpaper Engine",
         options,
         Box::new(move |cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
-
             let mut style = (*cc.egui_ctx.style()).clone();
-            
             style.visuals.dark_mode = true;
             style.visuals.widgets.noninteractive.bg_fill = GlassTheme::bg_input();
             style.visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, GlassTheme::border_light());
@@ -1495,16 +1456,13 @@ pub fn run_ui(tx: Sender<UiCommand>) -> Result<(), eframe::Error> {
             style.visuals.widgets.inactive.corner_radius = 8.into();
             style.visuals.widgets.hovered.corner_radius = 8.into();
             style.visuals.widgets.active.corner_radius = 8.into();
-
             cc.egui_ctx.set_visuals(egui::Visuals {
             window_fill: Color32::TRANSPARENT,
             panel_fill: Color32::TRANSPARENT,
             ..egui::Visuals::dark()
 });
-            
          style.visuals.window_fill = Color32::TRANSPARENT;
          style.visuals.panel_fill = Color32::TRANSPARENT;
-
             Ok(Box::new(SystemMonitorApp::new(tx.clone())))
         }),
     )
