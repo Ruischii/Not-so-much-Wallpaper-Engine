@@ -23,11 +23,7 @@ use eframe::{
 use sysinfo::{System, RefreshKind, CpuRefreshKind};
 use rand::seq::SliceRandom;
 use image::GenericImageView;
-
-// ======================================================
 // UI → Engine Commands
-// ======================================================
-
 #[derive(Debug, Clone)]
 pub enum UiCommand {
     Quit,
@@ -37,11 +33,7 @@ pub enum UiCommand {
     PrevWallpaper,
     PostComment(String),
 }
-
-// ======================================================
 // WALLPAPER ITEM
-// ======================================================
-
 #[derive(Debug, Clone)]
 pub struct WallpaperItem {
     pub id: usize,
@@ -78,11 +70,7 @@ enum SortOrder {
     Rating,
     DateAdded,
 }
-
-// ======================================================
 // WALLPAPER STATE
-// ======================================================
-
 struct WallpaperState {
     wallpaper_folder: PathBuf,
     image_paths: Vec<PathBuf>,
@@ -292,11 +280,7 @@ impl WallpaperState {
         }
     }
 }
-
-// ======================================================
-// UI STATE (System Info)
-// ======================================================
-
+// UI STATE
 struct UiState {
     sys: System,
     cpu_name: String,
@@ -404,11 +388,7 @@ impl UiState {
         self.cpu_temp = self.cpu_temp.clamp(35.0, 85.0);
     }
 }
-
-// ======================================================
 // GLASS THEME
-// ======================================================
-
 struct GlassTheme;
 
 impl GlassTheme {
@@ -434,11 +414,7 @@ impl GlassTheme {
 
     fn gradient_start() -> Color32 { Color32::from_rgb(99, 102, 241) }
 }
-
-// ======================================================
 // MAIN APP
-// ======================================================
-
 pub struct SystemMonitorApp {
     state: UiState,
     wallpaper: Arc<Mutex<WallpaperState>>,
@@ -787,10 +763,6 @@ impl SystemMonitorApp {
             Tab::System => self.render_system_tab(ui),
         }
     }
-
-    // The rest of the functions remain unchanged (render_discover_tab, render_wallpaper_card, etc.)
-    // ... (all other methods are identical to the previous version to maintain 1501 lines)
-
     fn render_discover_tab(&mut self, ui: &mut egui::Ui) {
         self.render_online_section(ui);
         if ui.button("Fetch from Wallhaven").clicked() {
@@ -1477,10 +1449,7 @@ pub fn run_ui(tx: Sender<UiCommand>) -> Result<(), eframe::Error> {
         }),
     )
 }
-// ======================================================
-// 🔥 FAVORITES EXTENSION (NON-INTRUSIVE)
-// ======================================================
-
+//EXTENSION
 use std::collections::HashSet;
 
 #[derive(Default)]
@@ -1508,10 +1477,7 @@ fn favorites() -> &'static Mutex<FavoritesState> {
     FAVORITES.get_or_init(|| Mutex::new(FavoritesState::default()))
 }
 
-// ======================================================
-// 🎨 FAVORITE BUTTON OVERLAY (inject into cards)
-// ======================================================
-
+// Overlay
 impl SystemMonitorApp {
     fn favorite_button(&mut self, ui: &mut egui::Ui, item_id: usize, rect: egui::Rect) {
         let mut fav = favorites().lock().unwrap();
@@ -1539,11 +1505,7 @@ impl SystemMonitorApp {
         }
     }
 }
-
-// ======================================================
-// 🧠 PATCH-INJECTION HOOK (CALL THIS MANUALLY)
-// ======================================================
-
+// HOOK
 impl SystemMonitorApp {
     fn inject_favorite_overlay(
         &mut self,
@@ -1554,10 +1516,6 @@ impl SystemMonitorApp {
         self.favorite_button(ui, item.id, preview_rect);
     }
 }
-
-// ======================================================
-// 📌 FAVORITES FILTER (OPTIONAL CALL)
-// ======================================================
 
 impl SystemMonitorApp {
     fn filter_only_favorites(&mut self) {
@@ -1572,9 +1530,8 @@ impl SystemMonitorApp {
             .collect();
     }
 }
-// ======================================================
-// 🌐 ONLINE WALLPAPER API EXTENSION (NON-INTRUSIVE)
-// ======================================================
+
+//API EXTENSION
 
 use std::thread;
 use std::sync::mpsc::{channel, Receiver};
@@ -1608,10 +1565,6 @@ static ONLINE_STATE: OnceLock<Mutex<OnlineState>> = OnceLock::new();
 fn online_state() -> &'static Mutex<OnlineState> {
     ONLINE_STATE.get_or_init(|| Mutex::new(OnlineState::new()))
 }
-
-// ======================================================
-// 🌍 FETCH FROM API (THREAD SAFE)
-// ======================================================
 
 impl SystemMonitorApp {
     fn fetch_online_wallpapers(&self) {
@@ -1658,10 +1611,6 @@ impl SystemMonitorApp {
     }
 }
 
-// ======================================================
-// 🧩 MERGE ONLINE INTO UI
-// ======================================================
-
 impl SystemMonitorApp {
     fn merge_online_wallpapers(&mut self) {
         let online = online_state().lock().unwrap();
@@ -1681,10 +1630,6 @@ impl SystemMonitorApp {
         wallpaper.apply_filters_and_sort();
     }
 }
-
-// ======================================================
-// 🎨 ONLINE TAB UI (EXTENSION)
-// ======================================================
 
 impl SystemMonitorApp {
     fn render_online_section(&mut self, ui: &mut egui::Ui) {
@@ -1715,9 +1660,6 @@ impl SystemMonitorApp {
         ui.label(format!("🌍 {} wallpapers available online", online.wallpapers.len()));
     }
 }
-// ======================================================
-// 🌐 REAL ONLINE API (WALLHAVEN) + DOWNLOAD CACHE
-// ======================================================
 
 use serde::Deserialize;
 
@@ -1768,7 +1710,7 @@ fn download_image(url: &str) -> Option<PathBuf> {
     None
 }
 
-// ---------- FETCH REAL API ----------
+// FETCH API
 
 impl SystemMonitorApp {
     fn fetch_wallhaven(&self) {
@@ -1815,9 +1757,7 @@ impl SystemMonitorApp {
         });
     }
 }
-// ======================================================
-// 🚀 STEAM-LEVEL ONLINE SYSTEM
-// ======================================================
+// STEAM WORKSHOP (IDK IF IT WORK OR NOT)
 
 #[derive(Default)]
 struct OnlineQuery {
@@ -1837,11 +1777,7 @@ fn online_query() -> &'static Mutex<OnlineQuery> {
         has_more: true,
     }))
 }
-
-// ======================================================
-// 🔍 SEARCH + PAGINATION (WALLHAVEN)
-// ======================================================
-
+// WALLHAVEN
 impl SystemMonitorApp {
     fn search_wallhaven(&self, query: String, page: u32) {
         let state = online_state().clone();
@@ -1896,10 +1832,6 @@ impl SystemMonitorApp {
         });
     }
 }
-
-// ======================================================
-// 🎨 STEAM WORKSHOP UI PANEL
-// ======================================================
 
 impl SystemMonitorApp {
     fn render_steam_workshop(&mut self, ui: &mut egui::Ui) {
@@ -1980,14 +1912,8 @@ impl SystemMonitorApp {
         self.merge_online_wallpapers();
     }
 }
-// ======================================================
-// ⚡ GPU + ASYNC PERFORMANCE LAYER (FIXED)
-// ======================================================
 
 use std::sync::mpsc::{Sender as StdSender, Receiver as StdReceiver};
-// ------------------------------------------------------
-// 🧠 BACKGROUND IMAGE LOADER
-// ------------------------------------------------------
 
 struct ImageJob {
     id: usize,
@@ -2051,10 +1977,6 @@ fn image_loader() -> &'static AsyncImageLoader {
     IMAGE_LOADER.get_or_init(|| AsyncImageLoader::new(4))
 }
 
-// ------------------------------------------------------
-// 🚀 QUEUE IMAGE LOAD (NON-BLOCKING)
-// ------------------------------------------------------
-
 impl SystemMonitorApp {
     fn queue_image_load(&self, item: &WallpaperItem) {
         let _ = image_loader().sender.send(ImageJob {
@@ -2063,10 +1985,6 @@ impl SystemMonitorApp {
         });
     }
 }
-
-// ------------------------------------------------------
-// 🎮 PROCESS GPU UPLOADS (MAIN THREAD)
-// ------------------------------------------------------
 
 impl SystemMonitorApp {
     fn process_loaded_images(&mut self, ctx: &Context) {
@@ -2088,10 +2006,6 @@ impl SystemMonitorApp {
     }
 }
 
-// ------------------------------------------------------
-// 🧹 SMART CACHE CLEANUP (VRAM SAFE)
-// ------------------------------------------------------
-
 impl SystemMonitorApp {
     fn cleanup_texture_cache(&mut self) {
         let mut wallpaper = self.wallpaper.lock().unwrap();
@@ -2108,9 +2022,6 @@ impl SystemMonitorApp {
     }
 }
 
-// ------------------------------------------------------
-// ⚡ LAZY LOAD VISIBLE ITEMS ONLY
-// ------------------------------------------------------
 
 impl SystemMonitorApp {
     fn lazy_load_visible(&mut self) {
